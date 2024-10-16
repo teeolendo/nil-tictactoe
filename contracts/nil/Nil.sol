@@ -1,12 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+// CurrencyId is a type that represents a unique currency identifier.
+type CurrencyId is address;
+
+using {
+    currencyIdEqual as ==,
+    currencyIdNotEqual as !=
+} for CurrencyId global;
+
+function currencyIdEqual(CurrencyId a, CurrencyId b) pure returns (bool) {
+    return CurrencyId.unwrap(a) == CurrencyId.unwrap(b);
+}
+
+function currencyIdNotEqual(CurrencyId a, CurrencyId b) pure returns (bool) {
+    return CurrencyId.unwrap(a) != CurrencyId.unwrap(b);
+}
+
 library Nil {
     uint private constant SEND_MESSAGE = 0xfc;
     address private constant ASYNC_CALL = address(0xfd);
     address public constant VERIFY_SIGNATURE = address(0xfe);
     address public constant IS_INTERNAL_MESSAGE = address(0xff);
-    address public constant MINT_CURRENCY = address(0xd0);
+    address public constant MANAGE_CURRENCY = address(0xd0);
     address private constant GET_CURRENCY_BALANCE = address(0xd1);
     address private constant SEND_CURRENCY_SYNC = address(0xd2);
     address private constant GET_MESSAGE_TOKENS = address(0xd3);
@@ -14,6 +30,8 @@ library Nil {
     address private constant GET_POSEIDON_HASH = address(0xd5);
     address private constant AWAIT_CALL = address(0xd6);
     address private constant CONFIG_PARAM = address(0xd7);
+    address private constant SEND_REQUEST = address(0xd8);
+    address public constant IS_RESPONSE_MESSAGE = address(0xd9);
 
     // The following constants specify from where and how the gas should be taken during async call.
     // Forwarding values are calculated in the following order: FORWARD_VALUE, FORWARD_PERCENTAGE, FORWARD_REMAINING.
@@ -27,10 +45,12 @@ library Nil {
     uint8 public constant FORWARD_VALUE = 2;
     // Do not forward gas from inbound message, take gas from the account instead.
     uint8 public constant FORWARD_NONE = 3;
+    // Minimal amount of gas reserved by AWAIT_CALL / SEND_REQUEST
+    uint public constant ASYNC_REQUEST_MIN_GAS = 50_000;
 
     // Token is a struct that represents a token with an id and amount.
     struct Token {
-        uint256 id;
+        CurrencyId id;
         uint256 amount;
     }
 
@@ -42,16 +62,7 @@ library Nil {
         uint value,
         bytes memory callData
     ) internal {
-        Token[] memory tokens;
-        asyncCall(dst, address(0), bounceTo, 0, FORWARD_REMAINING, false, value, tokens, callData);
-    }
-
-    // awaitCall makes an asynchronous call to `dst` contract and waits for the result.
-    function awaitCall(
-        address dst,
-        bytes memory callData
-    ) internal returns(bytes memory, bool) {
-        return __Precompile__(AWAIT_CALL).precompileAwaitCall(dst, callData);
+        asyncCall(dst, address(0), bounceTo, 0, FORWARD_REMAINING, false, value, callData);
     }
 
     // asyncCall makes an asynchronous call to `dst` contract.
@@ -66,11 +77,11 @@ library Nil {
         bytes memory callData
     ) internal {
         Token[] memory tokens;
-        asyncCall(dst, refundTo, bounceTo, feeCredit, forwardKind, deploy, value, tokens, callData);
+        asyncCallWithTokens(dst, refundTo, bounceTo, feeCredit, forwardKind, deploy, value, tokens, callData);
     }
 
-    // asyncCall makes an asynchronous call to `dst` contract.
-    function asyncCall(
+    // asyncCallWithTokens makes an asynchronous call to `dst` contract with native currency tokens attached
+    function asyncCallWithTokens(
         address dst,
         address refundTo,
         address bounceTo,
@@ -82,21 +93,6 @@ library Nil {
         bytes memory callData
     ) internal {
         __Precompile__(ASYNC_CALL).precompileAsyncCall{value: value}(deploy, forwardKind, dst, refundTo,
-            bounceTo, feeCredit, tokens, callData);
-    }
-
-    // asyncCall makes an asynchronous call to `dst` contract.
-    function asyncCall(
-        address dst,
-        address refundTo,
-        address bounceTo,
-        uint feeCredit,
-        bool deploy,
-        uint value,
-        Token[] memory tokens,
-        bytes memory callData
-    ) internal {
-        __Precompile__(ASYNC_CALL).precompileAsyncCall{value: value}(deploy, FORWARD_NONE, dst, refundTo,
             bounceTo, feeCredit, tokens, callData);
     }
 
@@ -114,13 +110,49 @@ library Nil {
         return (success, returnData);
     }
 
+    // awaitCall makes an asynchronous call to `dst` contract and waits for the result.
+    //
+    // `responseProcessingGas` amount of gas is being bought and reserved to process the response
+    //  should be >= `ASYNC_REQUEST_MIN_GAS` to make a call, otherwise `sendRequest` will fail
+    function awaitCall(
+        address dst,
+        uint responseProcessingGas,
+        bytes memory callData
+    ) internal returns(bytes memory, bool) {
+        return __Precompile__(AWAIT_CALL).precompileAwaitCall(dst, responseProcessingGas, callData);
+    }
+
+    // `responseProcessingGas` amount of gas is being bought and reserved to process the response
+    //  should be >= `ASYNC_REQUEST_MIN_GAS` to make a call, otherwise `sendRequest` will fail
+    function sendRequest(
+        address dst,
+        uint256 value,
+        uint responseProcessingGas,
+        bytes memory context,
+        bytes memory callData
+    ) internal {
+        Token[] memory tokens;
+        __Precompile__(SEND_REQUEST).precompileSendRequest{value: value}(dst, tokens, responseProcessingGas, context, callData);
+    }
+
+    function sendRequestWithTokens(
+        address dst,
+        uint256 value,
+        Token[] memory tokens,
+        uint responseProcessingGas,
+        bytes memory context,
+        bytes memory callData
+    ) internal {
+        __Precompile__(SEND_REQUEST).precompileSendRequest{value: value}(dst, tokens, responseProcessingGas, context, callData);
+    }
+
     // Send raw internal message using a special precompiled contract
-    function sendMessage(uint g, bytes memory message) internal {
+    function sendMessage(bytes memory message) internal {
         uint message_size = message.length;
         assembly {
             // Call precompiled contract.
             // Arguments: gas, precompiled address, value, input, input size, output, output size
-            if iszero(call(g, SEND_MESSAGE, 0, add(message, 32), message_size, 0, 0)) {
+            if iszero(call(gas(), SEND_MESSAGE, 0, add(message, 32), message_size, 0, 0)) {
                 revert(0, 0)
             }
         }
@@ -152,7 +184,7 @@ library Nil {
     }
 
     // getCurrencyBalance returns the balance of a token with a given id for a given address.
-    function currencyBalance(address addr, uint256 id) internal view returns(uint256) {
+    function currencyBalance(address addr, CurrencyId id) internal view returns(uint256) {
         return __Precompile__(GET_CURRENCY_BALANCE).precompileGetCurrencyBalance(id, addr);
     }
 
@@ -240,13 +272,26 @@ library Nil {
 
 // NilBase is a base contract that provides modifiers for checking the type of message (internal or external).
 contract NilBase {
-    // onlyInternal checks that method was invoked from internal message.
+    /**
+     * @dev Modifier to check that the method was invoked from a response message.
+     */
+    modifier onlyResponse() {
+        (bool success,/* bytes memory returnData*/) = Nil.IS_RESPONSE_MESSAGE.staticcall(bytes(""));
+        require(success, "IS_RESPONSE_MESSAGE call failed");
+        _;
+    }
+
+    /**
+     * @dev Modifier to check that the method was invoked from an internal message.
+     */
     modifier onlyInternal() {
         require(isInternalMessage(), "Trying to call internal function with external message");
         _;
     }
 
-    // onlyExternal checks that method was invoked from external message.
+    /**
+     * @dev Modifier to check that the method was invoked from an external message.
+     */
     modifier onlyExternal() {
         require(!isInternalMessage(), "Trying to call external function with internal message");
         _;
@@ -268,10 +313,12 @@ abstract contract NilBounceable is NilBase {
 
 // WARNING: User should never use this contract directly.
 contract __Precompile__ {
-    function precompileMintCurrency(uint256 amount) public returns(bool) {}
-    function precompileGetCurrencyBalance(uint256 id, address addr) public view returns(uint256) {}
+    // if mint flag is set to false, currency will be burned instead
+    function precompileManageCurrency(uint256 amount, bool mint) public returns(bool) {}
+    function precompileGetCurrencyBalance(CurrencyId id, address addr) public view returns(uint256) {}
     function precompileAsyncCall(bool, uint8, address, address, address, uint, Nil.Token[] memory, bytes memory) public payable returns(bool) {}
-    function precompileAwaitCall(address, bytes memory) public payable returns(bytes memory, bool) {}
+    function precompileAwaitCall(address, uint, bytes memory) public payable returns(bytes memory, bool) {}
+    function precompileSendRequest(address, Nil.Token[] memory, uint, bytes memory, bytes memory) public payable returns(bool) {}
     function precompileSendTokens(address, Nil.Token[] memory) public returns(bool) {}
     function precompileGetMessageTokens() public returns(Nil.Token[] memory) {}
     function precompileGetGasPrice(uint id) public returns(uint256) {}

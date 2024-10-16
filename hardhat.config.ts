@@ -5,7 +5,10 @@ import * as dotenv from "dotenv";
 import "@nilfoundation/hardhat-plugin";
 
 // Import tasks
-import "./tasks/increment";
+import "./tasks/startgame";
+import "./tasks/gameStatus";
+import "./tasks/makeMove";
+import "./tasks/setCrossShardAddress";
 
 dotenv.config();
 
@@ -22,5 +25,7 @@ const config: NilHardhatUserConfig = {
   },
   walletAddress: process.env.WALLET_ADDR?.toLowerCase(),
   debug: true,
+  shardId: 1,
 };
 export default config;
+  

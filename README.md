@@ -1,16 +1,21 @@
 
 <div align="center">
-  <h1>nil-hardhat-example</h1>
+  <h1>Nil TicTacToe Example</h1>
 </div>
 
 ## 🚀 Overview
-This repository demonstrates how to deploy and interact with smart contracts on the =nil; blockchain using Hardhat and our custom plugin. The =nil; blockchain is an Ethereum Layer 2 solution based on zk-sharding, enhancing transaction efficiency and scalability
+This repository demonstrates how to deploy and interact with smart contracts on the =nil; blockchain using Hardhat and our custom plugin. The =nil; blockchain is an Ethereum Layer 2 solution based on zk-sharding, enhancing transaction efficiency and scalability.
+
+The Tic Tac Toe game has 3 primary smart contracts designed to demonstrate how to interact with the nil cluster. These are:
+- Synchronous Communication from a single shard
+- Asynchronous communication across shards
+- Using Currencies for rewards.
 
 ## 🔧 Installation
 1. **Clone the Repository:**
    ```
-   git clone https://github.com/NilFoundation/nil-hardhat-example.git
-   cd nil-hardhat-example
+   git clone https://github.com/teeolendo/nil-tictactoe.git
+   cd nil-tictactoe
    ```
 2. **Install Dependencies:**
    ```
@@ -29,13 +34,17 @@ Once you have `nil`, run the following commands to generate a new key and wallet
 4. Update the `.env` file with the private key and wallet address
 
 ## 🎯 Usage
-To deploy and interact with the Incrementer contract, use the following commands:
+To deploy and interact with the SyncTicTacToe contract, use the following commands:
 ```
 # Deploy the contract
-npx hardhat ignition deploy ./ignition/modules/Incrementer.ts --network nil
+npx hardhat ignition deploy ./ignition/modules/SyncTicTacToe.ts --network nil
 
-# Interact with the contract
-npx hardhat increment --network nil --contract <Contract Address>
+# Start a Game
+npx hardhat startGame --network nil --contract <Contract Address> --opponent <Opponent's Address>
+
+# View a Game's Status
+npx hardhat gameStatus --network nil --contract <Contract Address> --gameid <GameID>
+
 ```
 
 ## 🎯 Testing
