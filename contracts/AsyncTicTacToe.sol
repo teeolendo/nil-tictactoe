@@ -43,9 +43,11 @@ contract AsyncTicTacToe is NilBase {
     event GameEnded(uint gameId, GameState result);
     event CallCompleted(address indexed dst);
 
-    constructor() {
+    constructor() payable {
         owner = msg.sender;
     }
+
+    receive() external payable {}
 
     // Start a new game between two players
     function startGame(address _opponent) external returns (uint) {
@@ -140,7 +142,7 @@ contract AsyncTicTacToe is NilBase {
         dst.asyncCall(
             address(0),
             address(0),
-            50000000,
+            5000000,
             Nil.FORWARD_NONE,
             false,
             0,

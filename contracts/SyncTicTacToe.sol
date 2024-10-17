@@ -30,6 +30,10 @@ contract SyncTicTacToe {
     event MoveMade(uint gameId, address player, uint8 position);
     event GameEnded(uint gameId, GameState result);
 
+    constructor() payable {}
+
+    receive() external payable {}
+
     // Start a new game between two players
     function startGame(address _opponent) external returns (uint) {
         require(msg.sender != _opponent, "Cannot play against yourself");
